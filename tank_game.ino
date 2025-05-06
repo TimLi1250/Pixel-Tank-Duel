@@ -19,23 +19,27 @@ LCDWIKI_SPI lcd(MODEL, CS_PIN, CD_PIN, RST_PIN, LED_PIN);
 #define BLACK       0x0000
 #define WHITE       0xFFFF
 #define BLUE        0x001F
+#define GREEN       0x03A0
+#define RED         0xF800
 #define BROWN       0xA145
 #define DARK_GREY   0x8410
-#define DARK_GREEN  0x03A0
 
-// —— Tank settings ——
-const int numTanks = 2;
+// —— Tank & UI settings ——
+const int numTanks   = 2;
 int spawnXs[numTanks], groundYs[numTanks];
 const int tankWidth  = 24;
 const int tankHeight = 10;
 
-// —— UI metrics ——
-const int barW    = 100;
-const int barH    =   8;
-const int margin  =  10;
-const int p1x     = margin;
-const int healthY = margin;
-const int powerY  = healthY + barH + 4;
+// UI layout
+const int barW      = 100;
+const int barH      =   8;
+const int margin    =  10;
+const int topOffset =  20;  // push UI down
+const int p1x       = margin;
+const int p2x       = SCREEN_W - margin - barW;
+const int healthY   = margin + topOffset;
+const int powerY    = healthY + barH + 4;
+const int uiBoxPad  =   5;  // padding around UI boxes
 
 // —— Button pins ——
 #define ANGLE_DEC_PIN 2
@@ -45,13 +49,19 @@ const int powerY  = healthY + barH + 4;
 #define SHOOT_PIN     6
 
 // —— State variables ——
-int angle     = 0;    // degrees, –90…+90
-int power     = 50;   // 0…100
-bool lastAdec = HIGH, lastAinc = HIGH;
-bool lastPdec = HIGH, lastPinc = HIGH;
-bool lastShoot= HIGH;
+int angle       = 90;    // 0…180 (90 = horizontal)
+int prevAngle   = 90;
+int power       = 50;    // 0…100
+const int angleStep = 5;
+const int powerStep = 2; // finer increments
+bool lastAdec   = HIGH, lastAinc = HIGH;
+bool lastPdec   = HIGH, lastPinc = HIGH;
+bool lastShoot  = HIGH;
 
-// Generate terrain (unchanged)
+// background color
+uint16_t backgroundColor;
+
+// Generate terrain (unchanged) …
 void generateTerrain() {
   randomSeed(analogRead(A0));
   int h = SCREEN_H/2, minH = SCREEN_H/4, maxH = SCREEN_H-20;
@@ -75,51 +85,92 @@ void generateTerrain() {
   }
 }
 
-// Draw tank body and barrel at current angle
-void drawTank(int x, int y) {
-  // body
-  lcd.Set_Draw_color(DARK_GREEN);
-  int wB=tankWidth, wT=14, th=tankHeight;
-  int botLx=x, botLy=y, botRx=x+wB;
-  int topLy=y-th;
-  int topLx=x+(wB-wT)/2, topRx=topLx+wT;
-  lcd.Fill_Triangle(botLx,botLy, topLx,topLy, botRx,botLy);
-  lcd.Fill_Triangle(topLx,topLy, topRx,topLy, botRx,botLy);
-  // barrel
-  float rad = angle * PI/180.0;
-  int bx = x + wB/2;
-  int by = y - th - 2;
-  int len = 16;
-  int ex = bx + int(cos(rad)*len);
-  int ey = by - int(sin(rad)*len);
-  lcd.Set_Draw_color(DARK_GREY);
-  lcd.Draw_Line(bx, by, ex, ey);
-  // outline
+// Draw a trapezoid-shaped tank at (x,y) with long side on top
+void drawTank(int x, int y, uint16_t topColor, uint16_t bottomColor) {
+  int topW = tankWidth;
+  int botW = tankWidth * 2 / 3;
+  int h    = tankHeight;
+  int dx   = (topW - botW) / 2;
+
+  int x1 = x,          y1 = y - h;  // top-left
+  int x2 = x + topW,   y2 = y - h;  // top-right
+  int x3 = x + dx + botW, y3 = y;   // bot-right
+  int x4 = x + dx,        y4 = y;   // bot-left
+
+  // fill bottom color
+  lcd.Set_Draw_color(bottomColor);
+  lcd.Fill_Triangle(x1,y1, x4,y4, x3,y3);
+  lcd.Fill_Triangle(x1,y1, x2,y2, x3,y3);
+
+  // fill top third with white
+  int th = h / 3;
+  int midW = topW - ((topW - botW) * th) / h;
+  int mdx  = (topW - midW) / 2;
+  int yMid = y - h + th;
+  int mx1  = x + mdx,        my1 = yMid;
+  int mx2  = x + mdx + midW, my2 = yMid;
   lcd.Set_Draw_color(WHITE);
-  lcd.Draw_Line(botLx,botLy, botRx,botLy);
-  lcd.Draw_Line(botRx,botLy, topRx,topLy);
-  lcd.Draw_Line(topRx,topLy, topLx,topLy);
-  lcd.Draw_Line(topLx,topLy, botLx,botLy);
+  lcd.Fill_Triangle(x1,y1, mx1,my1, x2,y2);
+  lcd.Fill_Triangle(mx1,my1, mx2,my2, x2,y2);
+
+  // outline in BLACK
+  lcd.Set_Draw_color(BLACK);
+  lcd.Draw_Line(x1,y1, x2,y2);
+  lcd.Draw_Line(x2,y2, x3,y3);
+  lcd.Draw_Line(x3,y3, x4,y4);
+  lcd.Draw_Line(x4,y4, x1,y1);
 }
 
-// Fire a dotted projectile from tank0
+// Draw small tank icon next to UI (bottomColor only)
+void drawTankIcon(int x, int y, uint16_t bottomColor) {
+  const int w = 20, h = 10;
+  int topW = w;
+  int botW = w * 2 / 3;
+  int dx   = (topW - botW) / 2;
+
+  int x1 = x,          y1 = y - h;
+  int x2 = x + topW,   y2 = y - h;
+  int x3 = x + dx + botW, y3 = y;
+  int x4 = x + dx,        y4 = y;
+
+  lcd.Set_Draw_color(bottomColor);
+  lcd.Fill_Triangle(x1,y1, x4,y4, x3,y3);
+  lcd.Fill_Triangle(x1,y1, x2,y2, x3,y3);
+
+  int th = h / 3;
+  int midW = topW - ((topW - botW) * th) / h;
+  int mdx  = (topW - midW) / 2;
+  int yMid = y - h + th;
+  int mx1  = x + mdx,        my1 = yMid;
+  int mx2  = x + mdx + midW, my2 = yMid;
+  lcd.Set_Draw_color(WHITE);
+  lcd.Fill_Triangle(x1,y1, mx1,my1, x2,y2);
+  lcd.Fill_Triangle(mx1,my1, mx2,my2, x2,y2);
+
+  lcd.Set_Draw_color(BLACK);
+  lcd.Draw_Line(x1,y1, x2,y2);
+  lcd.Draw_Line(x2,y2, x3,y3);
+  lcd.Draw_Line(x3,y3, x4,y4);
+  lcd.Draw_Line(x4,y4, x1,y1);
+}
+
+// Fire a dotted red projectile
 void fireProjectile() {
-  // calibrate so full-power horizontal range ≈ SCREEN_W
   const float maxSpeed = 50.0;
   const float g = maxSpeed*maxSpeed / float(SCREEN_W);
   float v0 = power/100.0 * maxSpeed;
   float rad = angle * PI/180.0;
   float vx = v0 * cos(rad), vy = v0 * sin(rad);
-  float t = 0, dt = 0.1;
+  float t = 0, dt = 0.2;
   int x0 = spawnXs[0] + tankWidth/2;
   int y0 = groundYs[0] - tankHeight - 2;
-  lcd.Set_Draw_color(BLUE);
   while (true) {
     float xf = x0 + vx*t;
     float yf = y0 - (vy*t - 0.5*g*t*t);
     int xi = int(xf), yi = int(yf);
-    if (xi<0 || xi>=SCREEN_W || yi>=SCREEN_H) break;
-    lcd.Fill_Rectangle(xi, yi, xi, yi);
+    if (xi < 0 || xi >= SCREEN_W || yi >= SCREEN_H) break;
+    lcd.Set_Draw_color(RED);
+    lcd.Fill_Rectangle(xi-2, yi-2, xi+2, yi+2);
     t += dt;
     delay(30);
   }
@@ -127,77 +178,109 @@ void fireProjectile() {
 
 void setup() {
   Serial.begin(115200);
+
+  // choose background randomly
+  bool night = random(0,2) == 0;
+  backgroundColor = night ? BLACK : WHITE;
+  lcd.Init_LCD();
+  lcd.Set_Rotation(1);
+  lcd.Fill_Screen(backgroundColor);
+
+  // configure buttons
   pinMode(ANGLE_DEC_PIN, INPUT_PULLUP);
   pinMode(ANGLE_INC_PIN, INPUT_PULLUP);
   pinMode(POWER_DEC_PIN, INPUT_PULLUP);
   pinMode(POWER_INC_PIN, INPUT_PULLUP);
   pinMode(SHOOT_PIN,     INPUT_PULLUP);
 
-  lcd.Init_LCD();
-  lcd.Set_Rotation(1);
-  lcd.Fill_Screen(WHITE);
+  // draw UI boxes in BLACK
+  lcd.Set_Draw_color(BLACK);
+  // Player 1 box
+  lcd.Draw_Rectangle(
+    p1x - uiBoxPad,
+    healthY - uiBoxPad,
+    p1x + barW + uiBoxPad + 30,  // extra for icon
+    powerY + barH + uiBoxPad
+  );
+  // Player 2 box
+  lcd.Draw_Rectangle(
+    p2x - uiBoxPad - 30,
+    healthY - uiBoxPad,
+    p2x + barW + uiBoxPad,
+    powerY + barH + uiBoxPad
+  );
 
-  // draw UI frames
-  lcd.Set_Draw_color(WHITE);
-  lcd.Draw_Rectangle(p1x, healthY, p1x+barW, healthY+barH);
-  lcd.Draw_Rectangle(p1x, powerY,  p1x+barW, powerY +barH);
-  int p2x = SCREEN_W - margin - barW;
-  lcd.Draw_Rectangle(p2x, healthY, p2x+barW, healthY+barH);
-  lcd.Draw_Rectangle(p2x, powerY,  p2x+barW, powerY +barH);
+  // outline health & power bars
+  lcd.Set_Draw_color(BLACK);
+  lcd.Draw_Rectangle(p1x, healthY,  p1x+barW, healthY+barH);
+  lcd.Draw_Rectangle(p1x, powerY,   p1x+barW, powerY +barH);
+  lcd.Draw_Rectangle(p2x, healthY,  p2x+barW, healthY+barH);
+  lcd.Draw_Rectangle(p2x, powerY,   p2x+barW, powerY +barH);
 
-  // fill health
+  // fill health (blue)
   lcd.Set_Draw_color(BLUE);
-  lcd.Fill_Rectangle(p1x+1, healthY+1, p1x+barW-1, healthY+barH-1);
+  lcd.Fill_Rectangle(p1x+1, healthY+1,  p1x+barW-1, healthY+barH-1);
+  lcd.Fill_Rectangle(p2x+1, healthY+1,  p2x+barW-1, healthY+barH-1);
 
-  // initial power bar
-  int w0 = map(power, 0, 100, 0, barW-2);
+  // initial power fill (grey)
   lcd.Set_Draw_color(DARK_GREY);
+  int w0 = map(power, 0, 100, 0, barW-2);
   lcd.Fill_Rectangle(p1x+1, powerY+1, p1x+1+w0, powerY+barH-1);
+  lcd.Fill_Rectangle(p2x+1, powerY+1, p2x+1+w0, powerY+barH-1);
 
-  // names
+  // player names
   lcd.Set_Text_colour(BLACK);
-  lcd.Set_Text_Back_colour(WHITE);
+  lcd.Set_Text_Back_colour(backgroundColor);
   lcd.Set_Text_Size(1);
-  lcd.Print_String("Player 1", p1x, healthY-10);
-  lcd.Print_String("Player 2", p2x, healthY-10);
+  lcd.Print_String("Player 1", p1x, healthY - 12);
+  lcd.Print_String("Player 2", p2x, healthY - 12);
 
-  // terrain & tanks
+  // draw tank icons
+  drawTankIcon(p1x + barW + uiBoxPad + 10, healthY + barH + 8, GREEN);
+  drawTankIcon(p2x - uiBoxPad - 30,         healthY + barH + 8, BLUE);
+
+  // terrain & main tanks
   spawnXs[0] = SCREEN_W/3 + random(-20,20);
   spawnXs[1] = 2*SCREEN_W/3 + random(-20,20);
   generateTerrain();
-  for(int i=0;i<numTanks;i++){
-    groundYs[i]=max(groundYs[i], tankHeight+1);
-    drawTank(spawnXs[i], groundYs[i]);
+  for (int i = 0; i < numTanks; i++) {
+    groundYs[i] = max(groundYs[i], tankHeight + 1);
+    drawTank(
+      spawnXs[i],
+      groundYs[i],
+      WHITE,
+      (i == 0 ? GREEN : BLUE)
+    );
   }
 }
 
 void loop() {
-  // read and edge-detect buttons
   bool ad = digitalRead(ANGLE_DEC_PIN),
        ai = digitalRead(ANGLE_INC_PIN),
        pd = digitalRead(POWER_DEC_PIN),
        pi = digitalRead(POWER_INC_PIN),
        sh = digitalRead(SHOOT_PIN);
-  bool redrawAngle=false, redrawPower=false;
 
-  // angle adjust
+  bool needRedrawBarrel = false, needRedrawPower = false;
+
+  // angle adjust, clamp 0–180
   if (ad==LOW && lastAdec==HIGH) {
-    angle = max(-90, angle - 5);
-    redrawAngle = true;
+    angle = max(0, angle - angleStep);
+    needRedrawBarrel = true;
   }
   if (ai==LOW && lastAinc==HIGH) {
-    angle = min( 90, angle + 5);
-    redrawAngle = true;
+    angle = min(180, angle + angleStep);
+    needRedrawBarrel = true;
   }
 
   // power adjust
   if (pd==LOW && lastPdec==HIGH) {
-    power = max(0, power - 5);
-    redrawPower = true;
+    power = max(0, power - powerStep);
+    needRedrawPower = true;
   }
   if (pi==LOW && lastPinc==HIGH) {
-    power = min(100, power + 5);
-    redrawPower = true;
+    power = min(100, power + powerStep);
+    needRedrawPower = true;
   }
 
   // shoot
@@ -205,31 +288,44 @@ void loop() {
     fireProjectile();
   }
 
-  // redraw angle (barrel) if needed
-  if (redrawAngle) {
-    // Serial print
+  // redraw barrel: erase old, draw new
+  if (needRedrawBarrel) {
+    int bx  = spawnXs[0] + tankWidth/2;
+    int by  = groundYs[0] - tankHeight - 2;
+    float prad = prevAngle * PI/180.0;
+    int pex = bx + int(cos(prad)*16);
+    int pey = by - int(sin(prad)*16);
+    lcd.Set_Draw_color(backgroundColor);
+    lcd.Draw_Line(bx, by, pex, pey);
+
+    float rad = angle * PI/180.0;
+    int ex = bx + int(cos(rad)*16);
+    int ey = by - int(sin(rad)*16);
+    lcd.Set_Draw_color(DARK_GREY);
+    lcd.Draw_Line(bx, by, ex, ey);
+
     Serial.print("Angle = ");
     Serial.println(angle);
-    // redraw tank 1 barrel
-    drawTank(spawnXs[0], groundYs[0]);
+    prevAngle = angle;
   }
 
-  // redraw power bar if needed
-  if (redrawPower) {
-    // Serial print
-    Serial.print("Power = ");
-    Serial.println(power);
+  // redraw power bar
+  if (needRedrawPower) {
     int w = map(power, 0, 100, 0, barW-2);
-    lcd.Set_Draw_color(WHITE);
+    lcd.Set_Draw_color(backgroundColor);
     lcd.Fill_Rectangle(p1x+1, powerY+1, p1x+barW-1, powerY+barH-1);
     lcd.Set_Draw_color(DARK_GREY);
     lcd.Fill_Rectangle(p1x+1, powerY+1, p1x+1+w, powerY+barH-1);
+
+    Serial.print("Power = ");
+    Serial.println(power);
   }
 
-  // save last states
-  lastAdec = ad;  lastAinc = ai;
-  lastPdec = pd;  lastPinc = pi;
-  lastShoot= sh;
+  lastAdec   = ad;
+  lastAinc   = ai;
+  lastPdec   = pd;
+  lastPinc   = pi;
+  lastShoot  = sh;
 
   delay(30);
 }
