@@ -225,55 +225,6 @@ void fireProjectile(int player) {
     digitalWrite(CS_PIN, HIGH);
     SPI.endTransaction();
 
-    // --- 2) rotated read
-    int xp = yi;
-    int yp = SCREEN_W - 1 - xi;
-    uint16_t c_rot;
-    SPI.beginTransaction(SPISettings(20000000, MSBFIRST, SPI_MODE0));
-    digitalWrite(CS_PIN, LOW);
-      c_rot = lcd.Read_Pixel(xp, yp);
-    digitalWrite(CS_PIN, HIGH);
-    SPI.endTransaction();
-
-    // Pick whichever makes sense (you’ll see in Serial)
-    uint16_t c = (c_direct==BROWN || c_direct==GREEN||c_direct==BLUE)
-                  ? c_direct
-                  : c_rot;
-
-    // --- debug print ---
-    Serial.print("P"); Serial.print(player+1);
-    Serial.print(" @("); Serial.print(xi); Serial.print(",");
-    Serial.print(yi); Serial.print("): direct=0x");
-    Serial.print(c_direct, HEX);
-    Serial.print(" rot=0x"); Serial.println(c_rot, HEX);
-
-    // --- 3) terrain hit if brown
-    if (c == BROWN) {
-      lcd.Set_Draw_color(backgroundColor);
-      lcd.Fill_Rectangle(xi-5, yi-5, xi+5, yi+5);
-      break;
-    }
-
-    // --- 4) tank hit?
-    int opp = 1 - player;
-    uint16_t oppColor = opp==0 ? GREEN : BLUE;
-    if (c == oppColor) {
-      // distance damage…
-      int cx = spawnXs[opp] + tankWidth/2;
-      int cy = groundYs[opp] - tankHeight/2;
-      float dx = xi - cx, dy = yi - cy;
-      float dist = sqrtf(dx*dx + dy*dy);
-      int dmg = dist < 1 ? maxHealth/2
-              : dist <= 10 ? maxHealth/4
-              : 0;
-      healthArr[opp] = max(0, healthArr[opp] - dmg);
-      drawHealthBars();
-      // crater
-      lcd.Set_Draw_color(backgroundColor);
-      lcd.Fill_Rectangle(cx-5, groundYs[opp]-5, cx+5, groundYs[opp]+5);
-      break;
-    }
-
     // --- 5) fallback: chunkHeights test if reads never brown
     static int failCount = 0;
     if (++failCount > 30) {
@@ -322,38 +273,6 @@ void showStartScreen() {
   }
 }
 
-// — animateExplosion() —
-// Draws 8 expanding 'petals' from screen center.
-// Colors go YELLOW → ORANGE → RED.
-void animateExplosion() {
-  int cx = SCREEN_W/2, cy = SCREEN_H/2;
-  int maxDim = max(SCREEN_W, SCREEN_H);
-  const int petalCount = 8;
-  const int step = 15;           // how far each frame expands
-  const int petalRadius = 8;     // size of each petal dot
-  const int delayMs = 50;        // frame delay
-
-  for (int r = 0; r <= maxDim; r += step) {
-    // pick color by radius
-    uint16_t col = (r < maxDim/3
-                    ? YELLOW
-                    : (r < 2*maxDim/3
-                       ? ORANGE
-                       : RED));
-    lcd.Set_Draw_color(col);
-
-    // draw each petal
-    for (int i = 0; i < petalCount; i++) {
-      float ang = TWO_PI * i / float(petalCount);
-      int px = cx + cos(ang) * r;
-      int py = cy + sin(ang) * r;
-      lcd.Fill_Circle(px, py, petalRadius);
-    }
-
-    delay(delayMs);
-  }
-}
-
 void setup() {
   Serial.begin(115200);
   SPI.begin();
@@ -376,7 +295,6 @@ void setup() {
 
   lcd.Fill_Screen(backgroundColor);
   showStartScreen();
-  animateExplosion();
   lcd.Fill_Screen(backgroundColor);
 
   lcd.Fill_Screen(backgroundColor);
