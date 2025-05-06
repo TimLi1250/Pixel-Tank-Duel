@@ -255,9 +255,28 @@ void fireProjectile(int player) {
       int ty0 = groundYs[opp] - tankHeight - margin;
       int ty1 = groundYs[opp] + margin;
       if (xi >= tx0 && xi <= tx1 && yi >= ty0 && yi <= ty1) {
+        // do damage
         int dmg = maxHealth/3 + 1;
         healthArr[opp] = max(0, healthArr[opp] - dmg);
         drawHealthBars();
+
+        // display “Hit!” above the tank
+        lcd.Set_Text_Size(1);
+        lcd.Set_Text_colour(GOLD);
+        lcd.Set_Text_Back_colour(backgroundColor);
+        int textW = 6 * 4;   // 4 chars × 6px each
+        int textH = 8;       // font height
+        int textX = spawnXs[opp] + tankWidth/2 - textW/2;
+        int textY = groundYs[opp] - tankHeight - 12;
+        lcd.Print_String("Hit!", textX, textY);
+
+        // pause so player sees it
+        delay(1000);
+
+        // clear the “Hit!” text
+        lcd.Set_Draw_color(backgroundColor);
+        lcd.Fill_Rectangle(textX, textY, textX + textW - 1, textY + textH - 1);
+
         break;
       }
    
@@ -324,6 +343,7 @@ void showStartScreen() {
     delay(10);
   }
 }
+
 // Displays Game Over screen
 void showGameOver(int winner) {
   uint16_t txtCol = BLACK;
