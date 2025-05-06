@@ -258,6 +258,34 @@ void fireProjectile(int player) {
   }
 }
 
+// -- showStartScreen(): displays title & waits for any button press --
+void showStartScreen() {
+  // pick a text color that contrasts with bg
+  uint16_t textColor = (backgroundColor == BLACK ? WHITE : BLACK);
+
+  lcd.Set_Text_colour(textColor);
+  lcd.Set_Text_Back_colour(backgroundColor);
+
+  // --- Title ---
+  lcd.Set_Text_Size(3);
+  // "Pixel Tank" is 10 chars; 6px per char × size(3) = 180px → center at (480−180)/2 = 150
+  lcd.Print_String("Pixel Tank", 150, SCREEN_H/3);
+
+  // --- Prompt ---
+  lcd.Set_Text_Size(2);
+  // "press any button to begin" ≈ 24 chars; 6px×size(2)=288px → (480−288)/2 = 96
+  lcd.Print_String("Press any button to begin!", 96, SCREEN_H*2/3);
+
+  // --- wait for any button (INPUT_PULLUP: LOW when pressed) ---
+  while ( digitalRead(ANGLE_DEC_PIN)==HIGH &&
+          digitalRead(ANGLE_INC_PIN)==HIGH &&
+          digitalRead(POWER_DEC_PIN)==HIGH &&
+          digitalRead(POWER_INC_PIN)==HIGH &&
+          digitalRead(SHOOT_PIN)==HIGH ) {
+    delay(10);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   SPI.begin();
@@ -270,7 +298,6 @@ void setup() {
   backgroundColor = night ? BLACK : WHITE;
   lcd.Init_LCD();
   lcd.Set_Rotation(1);
-  lcd.Fill_Screen(backgroundColor);
 
   // configure buttons
   pinMode(ANGLE_DEC_PIN, INPUT_PULLUP);
@@ -278,6 +305,11 @@ void setup() {
   pinMode(POWER_DEC_PIN, INPUT_PULLUP);
   pinMode(POWER_INC_PIN, INPUT_PULLUP);
   pinMode(SHOOT_PIN,     INPUT_PULLUP);
+
+  lcd.Fill_Screen(backgroundColor);
+  showStartScreen();
+
+  lcd.Fill_Screen(backgroundColor);
 
   // draw UI boxes in BLACK, extended to include name and icon
   lcd.Set_Draw_color(BLACK);
