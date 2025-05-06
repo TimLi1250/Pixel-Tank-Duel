@@ -73,10 +73,16 @@ bool lastShoot  = HIGH;
 // background color
 uint16_t backgroundColor;
 
-// 
+// terrain sampling
 const int chunkW = 5;
 const int nChunks = SCREEN_W / chunkW;
 static uint16_t chunkHeights[nChunks];
+
+#define MAX_TRAJ_POINTS 20
+int trajX[MAX_TRAJ_POINTS];
+int trajY[MAX_TRAJ_POINTS];
+int trajLen = 0;
+
 
 // Generate terrain (unchanged) …
 void generateTerrain() {
@@ -200,6 +206,8 @@ void drawHealthBars() {
 
 // Fire a dotted red projectile (smaller & more dotted)
 void fireProjectile(int player) {
+  trajLen = 0;
+  int shotStep = 0;
   const float maxSpeed = 50.0;
   const float g        = maxSpeed*maxSpeed / float(SCREEN_W);
   float v0  = powerArr[player]/100.0 * maxSpeed;
@@ -215,34 +223,66 @@ void fireProjectile(int player) {
     float yf = y0 - (vy*t - 0.5*g*t*t);
     int xi = int(xf), yi = int(yf);
 
+    // off-screen?
     if (xi < 0 || xi >= SCREEN_W || yi >= SCREEN_H) break;
 
-    // --- 1) direct read
-    uint16_t c_direct;
-    SPI.beginTransaction(SPISettings(20000000, MSBFIRST, SPI_MODE0));
-    digitalWrite(CS_PIN, LOW);
-      c_direct = lcd.Read_Pixel(xi, yi);
-    digitalWrite(CS_PIN, HIGH);
-    SPI.endTransaction();
+    // 2) tank collision by bounding box
+    int opp = 1 - player;
+    int tx0 = spawnXs[opp];
+    int tx1 = spawnXs[opp] + tankWidth;
+    int ty0 = groundYs[opp] - tankHeight;
+    int ty1 = groundYs[opp];
 
-    // --- 5) fallback: chunkHeights test if reads never brown
+    if (xi >= tx0 && xi <= tx1 && yi >= ty0 && yi <= ty1) {
+      // hit! subtract one-third health
+      int dmg = maxHealth / 3 + 1;
+      healthArr[opp] = max(0, healthArr[opp] - dmg);
+      drawHealthBars();
+
+      // crater at that column’s terrain height
+      //int hi = chunkHeights[xi/chunkW];
+      //lcd.Set_Draw_color(backgroundColor);
+      //lcd.Fill_Rectangle(xi-5, hi-5, xi+5, hi+5);
+      break;
+    }
+
+    // 3) fallback terrain check after 30 dots (in case Read_Pixel never sees brown)
     static int failCount = 0;
     if (++failCount > 30) {
-      int ch = chunkHeights[xi/chunkW];
-      if (yi >= ch) {
+      int hi = chunkHeights[xi/chunkW];
+      if (yi >= hi) {
         lcd.Set_Draw_color(backgroundColor);
-        lcd.Fill_Rectangle(xi-5, yi-5, xi+5, yi+5);
+        lcd.Fill_Rectangle(xi-5, hi-5, xi+5, hi+5);
         break;
       }
     }
 
-    // --- 6) no hit: plot shell
-    lcd.Set_Draw_color(RED);
-    lcd.Fill_Rectangle(xi-1, yi-1, xi+1, yi+1);
+    // only every 2nd simulation step:
+    if ((shotStep++ & 1) == 0) {
+      lcd.Set_Draw_color(RED);
+      lcd.Fill_Rectangle(xi-1, yi-1, xi+1, yi+1);
+
+      // record it
+      if (trajLen < MAX_TRAJ_POINTS) {
+        trajX[trajLen] = xi;
+        trajY[trajLen] = yi;
+        trajLen++;
+      }
+    }
 
     t += dt;
     delay(30);
   }
+}
+
+// helper to erase trajectory
+void eraseTrajectory() {
+  lcd.Set_Draw_color(backgroundColor);
+  for (int i = 0; i < trajLen; i++) {
+    int x = trajX[i], y = trajY[i];
+    lcd.Fill_Rectangle(x-1, y-1, x+1, y+1);
+  }
+  trajLen = 0;
 }
 
 // -- showStartScreen(): displays title & waits for any button press --
@@ -270,6 +310,34 @@ void showStartScreen() {
           digitalRead(POWER_INC_PIN)==HIGH &&
           digitalRead(SHOOT_PIN)==HIGH ) {
     delay(10);
+  }
+}
+
+// — showGameOver: clears screen and prints winner —  
+void showGameOver(int winner) {
+  // pick contrasting text color
+  uint16_t txtCol = (backgroundColor==BLACK ? WHITE : BLACK);
+
+  // clear everything
+  lcd.Fill_Screen(backgroundColor);
+
+  // big title
+  lcd.Set_Text_colour( txtCol );
+  lcd.Set_Text_Back_colour( backgroundColor );
+  lcd.Set_Text_Size(3);
+  // “GAME OVER” is 9 chars: 9*6px*3 = 162px wide → center at (480−162)/2 ≈ 159
+  lcd.Print_String("GAME OVER", 159, SCREEN_H/3);
+
+  // winner line
+  char buf[16];
+  sprintf(buf, "Player %d won!", winner+1);
+  lcd.Set_Text_Size(2);
+  // assume ~14 chars: 14*6*2 = 168px → center at (480−168)/2 = 156
+  lcd.Print_String(buf, 156, SCREEN_H/2);
+
+  // stop everything
+  while (true) {
+    delay(100);
   }
 }
 
@@ -435,8 +503,17 @@ void loop() {
   // — Shoot & switch turn —
   if (sh==LOW && lastShoot==HIGH) {
     fireProjectile(p);
-    currentPlayer = 1 - p;
+    eraseTrajectory();
+
+    int opp = 1 - p;
+    // if opponent’s health hit zero, game over!
+    if (healthArr[opp] <= 0) {
+      showGameOver(p);   // p just won
+    }
+
+    currentPlayer = opp;
   }
+
 
   lastAdec   = ad;
   lastAinc   = ai;
