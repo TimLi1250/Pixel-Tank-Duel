@@ -10,6 +10,8 @@
 #define RST_PIN      8
 #define LED_PIN     -1
 
+
+
 LCDWIKI_SPI lcd(MODEL, CS_PIN, CD_PIN, RST_PIN, LED_PIN);
 
 // Screen Dimensions
@@ -78,6 +80,10 @@ static uint16_t chunkHeights[nChunks];
 int trajX[MAX_TRAJ_POINTS];
 int trajY[MAX_TRAJ_POINTS];
 int trajLen = 0;
+
+unsigned long lastBlinkTime   = 0;
+bool         blinkOn          = true;
+const unsigned long blinkInterval = 500;  // ms
 
 
 // Generate terrain (unchanged) …
@@ -202,7 +208,7 @@ void drawHealthBars() {
 void fireProjectile(int player) {
   trajLen = 0;
   int shotStep = 0;
-  const float maxSpeed = 50.0;
+  const float maxSpeed = 60.0;
   const float g        = maxSpeed*maxSpeed / float(SCREEN_W);
   float v0  = powerArr[player]/100.0 * maxSpeed;
   float rad = angleArr[player] * PI/180.0;
@@ -329,8 +335,7 @@ void showGameOver(int winner) {
     delay(100);
   }
 }
-
-
+// Setup
 void setup() {
   Serial.begin(115200);
   SPI.begin();
@@ -370,21 +375,21 @@ void setup() {
     powerY + barH + uiBoxPad
   );
 
-  // outline health & power bars
+  // outline health and power bars
   lcd.Set_Draw_color(BLACK);
   lcd.Draw_Rectangle(p1x, healthY,  p1x+barW, healthY+barH);
   lcd.Draw_Rectangle(p1x, powerY,   p1x+barW, powerY +barH);
   lcd.Draw_Rectangle(p2x, healthY,  p2x+barW, healthY+barH);
   lcd.Draw_Rectangle(p2x, powerY,   p2x+barW, powerY +barH);
 
-  // fill health (blue)
+  // fill health
   lcd.Set_Draw_color(BLUE);
   lcd.Fill_Rectangle(p1x+1, healthY+1,  p1x+barW-1, healthY+barH-1);
   lcd.Fill_Rectangle(p2x+1, healthY+1,  p2x+barW-1, healthY+barH-1);
 
   drawHealthBars();
 
-  // initial power fill (grey)
+  // initial power
   lcd.Set_Draw_color(DARK_GREY);
   int w0 = map(powerArr[0], 0, 100, 0, barW-2);
   lcd.Fill_Rectangle(p1x+1, powerY+1, p1x+1+w0, powerY+barH-1);
@@ -401,10 +406,12 @@ void setup() {
   drawTankIcon(p1x + barW + uiBoxPad + 10, healthY + barH + 8, GREEN);
   drawTankIcon(p2x - uiBoxPad - 30,         healthY + barH + 8, BLUE);
 
-  // terrain & main tanks
-  spawnXs[0] = SCREEN_W/3 + random(-20,20);
-  spawnXs[1] = 2*SCREEN_W/3 + random(-20,20);
+  // terrain and main tanks
+  // IMPORTANT check later
+  spawnXs[0] = SCREEN_W/5 + random(-4, 5) * 5;
+  spawnXs[1] = 4*SCREEN_W/5 + random(-4, 5) * 5;
   generateTerrain();
+
   for (int i = 0; i < numTanks; i++) {
     groundYs[i] = max(groundYs[i], tankHeight + 1);
     drawTank(
@@ -415,7 +422,7 @@ void setup() {
     );
   }
 }
-
+// Loop
 void loop() {
   bool ad = digitalRead(ANGLE_DEC_PIN),
        ai = digitalRead(ANGLE_INC_PIN),
@@ -426,7 +433,7 @@ void loop() {
   bool needRedrawBarrel = false, needRedrawPower = false;
   int  p = currentPlayer;
 
-  // — Angle adjust —
+  // adjust angle
   if (ad==LOW && lastAdec==HIGH) {
     angleArr[p] = max(0, angleArr[p] - angleStep);
     needRedrawBarrel = true;
@@ -436,7 +443,7 @@ void loop() {
     needRedrawBarrel = true;
   }
 
-  // — Power adjust —
+  // adjust power
   if (pd==LOW && lastPdec==HIGH) {
     powerArr[p] = max(0, powerArr[p] - powerStep);
     needRedrawPower = true;
@@ -446,7 +453,7 @@ void loop() {
     needRedrawPower = true;
   }
 
-  // — Redraw barrel for current player —
+  // redraw barrel
   if (needRedrawBarrel) {
     int bx = spawnXs[p] + tankWidth/2;
     int by = groundYs[p] - tankHeight - 2;
@@ -470,7 +477,7 @@ void loop() {
     prevAngleArr[p] = angleArr[p];
   }
 
-  // — Redraw power bar for current player —
+  // redraw the power bar for current player
   if (needRedrawPower) {
     int baseX = (p==0 ? p1x : p2x);
     int w = map(powerArr[p], 0, 100, 0, barW-2);
@@ -485,25 +492,68 @@ void loop() {
     Serial.print(" power="); Serial.println(powerArr[p]);
   }
 
-  // — Shoot & switch turn —
+  // shoot and then switch the player turn
   if (sh==LOW && lastShoot==HIGH) {
     fireProjectile(p);
     eraseTrajectory();
 
     int opp = 1 - p;
-    // if opponent’s health hit zero, game over!
     if (healthArr[opp] <= 0) {
-      showGameOver(p);   // p just won
+      showGameOver(p);
     }
 
     currentPlayer = opp;
   }
 
+  unsigned long now = millis();
+  if (now - lastBlinkTime >= blinkInterval) {
+    lastBlinkTime = now;
+    blinkOn = !blinkOn;
+
+    int nameY = healthY - 12;
+    int nameH = 8;
+
+    // string widths
+    int p1NameW = 6 * strlen("Player 1");
+    int p2NameW = 6 * strlen("Player 2");
+
+    lcd.Set_Text_Size(1);
+    lcd.Set_Text_colour(BLACK);
+    lcd.Set_Text_Back_colour(backgroundColor);
+    if (currentPlayer == 0) {
+      lcd.Print_String(F("Player 2"), p2x, nameY);
+    } else {
+      lcd.Print_String(F("Player 1"), p1x, nameY);
+    }
+
+    if (currentPlayer == 0) {
+      if (blinkOn) {
+        lcd.Print_String(F("Player 1"), p1x, nameY);
+      } else {
+        lcd.Set_Draw_color(backgroundColor);
+        lcd.Fill_Rectangle(p1x, nameY,
+                           p1x + p1NameW,
+                           nameY + nameH);
+      }
+    } else {
+      if (blinkOn) {
+        lcd.Print_String(F("Player 2"), p2x, nameY);
+      } else {
+        lcd.Set_Draw_color(backgroundColor);
+        lcd.Fill_Rectangle(p2x, nameY,
+                           p2x + p2NameW,
+                           nameY + nameH);
+      }
+    }
+
+    lcd.Set_Draw_color(BLACK);
+  }
 
   lastAdec   = ad;
   lastAinc   = ai;
   lastPdec   = pd;
   lastPinc   = pi;
   lastShoot  = sh;
+
   delay(30);
 }
