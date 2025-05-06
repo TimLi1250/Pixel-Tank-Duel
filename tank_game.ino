@@ -29,6 +29,7 @@ const int numTanks   = 2;
 int spawnXs[numTanks], groundYs[numTanks];
 const int tankWidth  = 24;
 const int tankHeight = 10;
+const int barrelLen  = 20;   // increased barrel length
 
 // UI layout
 const int barW      = 100;
@@ -92,10 +93,10 @@ void drawTank(int x, int y, uint16_t topColor, uint16_t bottomColor) {
   int h    = tankHeight;
   int dx   = (topW - botW) / 2;
 
-  int x1 = x,          y1 = y - h;  // top-left
-  int x2 = x + topW,   y2 = y - h;  // top-right
-  int x3 = x + dx + botW, y3 = y;   // bot-right
-  int x4 = x + dx,        y4 = y;   // bot-left
+  int x1 = x,           y1 = y - h;  // top-left
+  int x2 = x + topW,    y2 = y - h;  // top-right
+  int x3 = x + dx + botW, y3 = y;    // bot-right
+  int x4 = x + dx,        y4 = y;    // bot-left
 
   // fill bottom color
   lcd.Set_Draw_color(bottomColor);
@@ -113,6 +114,15 @@ void drawTank(int x, int y, uint16_t topColor, uint16_t bottomColor) {
   lcd.Fill_Triangle(x1,y1, mx1,my1, x2,y2);
   lcd.Fill_Triangle(mx1,my1, mx2,my2, x2,y2);
 
+  // barrel
+  float rad = angle * PI/180.0;
+  int bx = x + topW/2;
+  int by = y - h - 2;
+  int ex = bx + int(cos(rad)*barrelLen);
+  int ey = by - int(sin(rad)*barrelLen);
+  lcd.Set_Draw_color(DARK_GREY);
+  lcd.Draw_Line(bx, by, ex, ey);
+
   // outline in BLACK
   lcd.Set_Draw_color(BLACK);
   lcd.Draw_Line(x1,y1, x2,y2);
@@ -128,8 +138,8 @@ void drawTankIcon(int x, int y, uint16_t bottomColor) {
   int botW = w * 2 / 3;
   int dx   = (topW - botW) / 2;
 
-  int x1 = x,          y1 = y - h;
-  int x2 = x + topW,   y2 = y - h;
+  int x1 = x,           y1 = y - h;
+  int x2 = x + topW,    y2 = y - h;
   int x3 = x + dx + botW, y3 = y;
   int x4 = x + dx,        y4 = y;
 
@@ -154,14 +164,14 @@ void drawTankIcon(int x, int y, uint16_t bottomColor) {
   lcd.Draw_Line(x4,y4, x1,y1);
 }
 
-// Fire a dotted red projectile
+// Fire a dotted red projectile (smaller & more dotted)
 void fireProjectile() {
   const float maxSpeed = 50.0;
   const float g = maxSpeed*maxSpeed / float(SCREEN_W);
   float v0 = power/100.0 * maxSpeed;
   float rad = angle * PI/180.0;
   float vx = v0 * cos(rad), vy = v0 * sin(rad);
-  float t = 0, dt = 0.2;
+  float t = 0, dt = 0.4;  // larger step → more dotted
   int x0 = spawnXs[0] + tankWidth/2;
   int y0 = groundYs[0] - tankHeight - 2;
   while (true) {
@@ -170,7 +180,7 @@ void fireProjectile() {
     int xi = int(xf), yi = int(yf);
     if (xi < 0 || xi >= SCREEN_W || yi >= SCREEN_H) break;
     lcd.Set_Draw_color(RED);
-    lcd.Fill_Rectangle(xi-2, yi-2, xi+2, yi+2);
+    lcd.Fill_Rectangle(xi-1, yi-1, xi+1, yi+1);
     t += dt;
     delay(30);
   }
@@ -193,19 +203,19 @@ void setup() {
   pinMode(POWER_INC_PIN, INPUT_PULLUP);
   pinMode(SHOOT_PIN,     INPUT_PULLUP);
 
-  // draw UI boxes in BLACK
+  // draw UI boxes in BLACK, extended to include name and icon
   lcd.Set_Draw_color(BLACK);
   // Player 1 box
   lcd.Draw_Rectangle(
     p1x - uiBoxPad,
-    healthY - uiBoxPad,
-    p1x + barW + uiBoxPad + 30,  // extra for icon
+    healthY - uiBoxPad - 14,
+    p1x + barW + uiBoxPad + 40,
     powerY + barH + uiBoxPad
   );
   // Player 2 box
   lcd.Draw_Rectangle(
-    p2x - uiBoxPad - 30,
-    healthY - uiBoxPad,
+    p2x - uiBoxPad - 40,
+    healthY - uiBoxPad - 14,
     p2x + barW + uiBoxPad,
     powerY + barH + uiBoxPad
   );
@@ -293,14 +303,14 @@ void loop() {
     int bx  = spawnXs[0] + tankWidth/2;
     int by  = groundYs[0] - tankHeight - 2;
     float prad = prevAngle * PI/180.0;
-    int pex = bx + int(cos(prad)*16);
-    int pey = by - int(sin(prad)*16);
+    int pex = bx + int(cos(prad)*barrelLen);
+    int pey = by - int(sin(prad)*barrelLen);
     lcd.Set_Draw_color(backgroundColor);
     lcd.Draw_Line(bx, by, pex, pey);
 
     float rad = angle * PI/180.0;
-    int ex = bx + int(cos(rad)*16);
-    int ey = by - int(sin(rad)*16);
+    int ex = bx + int(cos(rad)*barrelLen);
+    int ey = by - int(sin(rad)*barrelLen);
     lcd.Set_Draw_color(DARK_GREY);
     lcd.Draw_Line(bx, by, ex, ey);
 
