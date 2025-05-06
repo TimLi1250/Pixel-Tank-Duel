@@ -229,6 +229,39 @@ void fireProjectile(int player) {
     // stop if off screen
     if (xi < 0 || xi >= SCREEN_W || yi >= SCREEN_H) break;
 
+    // tank collision
+    int opp = 1 - player;
+    int margin = chunkW + 2;
+    int tx0 = spawnXs[opp] - margin;
+    int tx1 = spawnXs[opp] + tankWidth + margin;
+    int ty0 = groundYs[opp] - tankHeight - margin;
+    int ty1 = groundYs[opp] + margin;
+    if (xi >= tx0 && xi <= tx1 && yi >= ty0 && yi <= ty1) {
+      // do damage
+      int dmg = maxHealth/3 + 1;
+      healthArr[opp] = max(0, healthArr[opp] - dmg);
+      drawHealthBars();
+
+      // display “Hit!” above the tank
+      lcd.Set_Text_Size(1);
+      lcd.Set_Text_colour(GOLD);
+      lcd.Set_Text_Back_colour(backgroundColor);
+      int textW = 6 * 4;   // 4 chars × 6px each
+      int textH = 8;       // font height
+      int textX = spawnXs[opp] + tankWidth/2 - textW/2;
+      int textY = groundYs[opp] - tankHeight - 12;
+      lcd.Print_String("Hit!", textX, textY);
+
+      // pause so player sees it
+      delay(1000);
+
+      // clear the “Hit!” text
+      lcd.Set_Draw_color(backgroundColor);
+      lcd.Fill_Rectangle(textX, textY, textX + textW - 1, textY + textH - 1);
+
+      break;
+    }
+
     // only sample once per terrain chunk
     int chunkIdx = xi / chunkW;
     if (chunkIdx != lastChunk && chunkIdx >= 0 && chunkIdx < nChunks) {
@@ -246,39 +279,6 @@ void fireProjectile(int player) {
 
       prevY     = yi;
       lastChunk = chunkIdx;
-
-      // tank collision
-      int opp = 1 - player;
-      int margin = chunkW;
-      int tx0 = spawnXs[opp] - margin;
-      int tx1 = spawnXs[opp] + tankWidth + margin;
-      int ty0 = groundYs[opp] - tankHeight - margin;
-      int ty1 = groundYs[opp] + margin;
-      if (xi >= tx0 && xi <= tx1 && yi >= ty0 && yi <= ty1) {
-        // do damage
-        int dmg = maxHealth/3 + 1;
-        healthArr[opp] = max(0, healthArr[opp] - dmg);
-        drawHealthBars();
-
-        // display “Hit!” above the tank
-        lcd.Set_Text_Size(1);
-        lcd.Set_Text_colour(GOLD);
-        lcd.Set_Text_Back_colour(backgroundColor);
-        int textW = 6 * 4;   // 4 chars × 6px each
-        int textH = 8;       // font height
-        int textX = spawnXs[opp] + tankWidth/2 - textW/2;
-        int textY = groundYs[opp] - tankHeight - 12;
-        lcd.Print_String("Hit!", textX, textY);
-
-        // pause so player sees it
-        delay(1000);
-
-        // clear the “Hit!” text
-        lcd.Set_Draw_color(backgroundColor);
-        lcd.Fill_Rectangle(textX, textY, textX + textW - 1, textY + textH - 1);
-
-        break;
-      }
    
       if (yi > uiBottom) {
         lcd.Set_Draw_color(RED);
@@ -371,6 +371,7 @@ void showGameOver(int winner) {
     delay(100);
   }
 }
+
 // Setup
 void setup() {
   Serial.begin(115200);
@@ -458,6 +459,7 @@ void setup() {
     );
   }
 }
+
 // Loop
 void loop() {
   bool ad = digitalRead(ANGLE_DEC_PIN),
