@@ -76,8 +76,8 @@ const int nChunks = SCREEN_W / chunkW;
 static uint16_t chunkHeights[nChunks];
 
 // Drawing trajectory
-int trajX[20];
-int trajY[20];
+int trajX[30];
+int trajY[30];
 int trajLen = 0;
 
 unsigned long lastBlinkTime = 0;
@@ -260,22 +260,18 @@ void fireProjectile(int player) {
         drawHealthBars();
         break;
       }
+   
+      if (yi > uiBottom) {
+        lcd.Set_Draw_color(RED);
+        lcd.Fill_Rectangle(xi-1, yi-1, xi+1, yi+1);
 
-    
-    if (yi > uiBottom) {
-      lcd.Set_Draw_color(RED);
-      lcd.Fill_Rectangle(xi-1, yi-1, xi+1, yi+1);
-
-      
-      if (trajLen < nChunks) {
-        trajX[trajLen] = xi;
-        trajY[trajLen] = yi;
-        trajLen++;
+        if (trajLen < 30) {
+          trajX[trajLen] = xi;
+          trajY[trajLen] = yi;
+          trajLen++;
+        }
       }
     }
-
-    }
-
     // increment t
     t += dt;
     delay(30);
@@ -298,9 +294,13 @@ void eraseTrajectory() {
     }
     lcd.Fill_Rectangle(x-1, y-1, x+1, y+1);
   }
-
+  for (int i = 0; i < trajLen; i++) {
+    trajX[i] = 0;
+    trajY[i] = 0;
+  }
   trajLen = 0;
 }
+
 // Displays Title
 void showStartScreen() {
 
